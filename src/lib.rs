@@ -1,5 +1,5 @@
-use actix_web::{web, App, HttpRequest, HttpServer, Responder, HttpResponse};
 use actix_web::dev::Server;
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use std::net::TcpListener;
 
 async fn greet(req: HttpRequest) -> impl Responder {
@@ -20,6 +20,6 @@ pub fn run(listener: TcpListener) -> Result<Server, std::io::Error> {
     })
     .listen(listener)?
     .run();
-    
+
     Ok(server)
 }
