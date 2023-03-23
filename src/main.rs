@@ -1,7 +1,7 @@
-use email_newsletter::startup::run;
-use std::net::TcpListener;
 use email_newsletter::configuration::get_configuration;
+use email_newsletter::startup::run;
 use sqlx::PgPool;
+use std::net::TcpListener;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
