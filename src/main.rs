@@ -1,9 +1,17 @@
-use email_newsletter::run;
+use email_newsletter::startup::run;
 use std::net::TcpListener;
+use email_newsletter::configuration::get_configuration;
+use sqlx::PgPool;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind random port");
+    let configuration = get_configuration().expect("Failed to read configuration.");
+    let connection_string = configuration.database.connection_string();
+    let connection_pool = PgPool::connect(&connection_string)
+        .await
+        .expect("Failed to connect to Postgres.");
 
-    run(listener)?.await
+    let address = format!("127.0.0.1:{}", configuration.application_port);
+    let listener = TcpListener::bind(address).expect("Failed to bind random port");
+    run(listener, connection_pool)?.await
 }
