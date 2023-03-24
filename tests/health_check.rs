@@ -1,7 +1,8 @@
-use email_newsletter::configuration::get_configuration;
+use email_newsletter::configuration::{get_configuration, DatabaseSettings};
 use reqwest::Client;
-use sqlx::PgPool;
+use sqlx::{Connection, Executor, PgConnection, PgPool};
 use std::{net::TcpListener, vec};
+use uuid::Uuid;
 
 #[tokio::test]
 async fn health_check_works() {
@@ -15,6 +16,8 @@ async fn health_check_works() {
 
     assert!(response.status().is_success());
     assert_eq!(Some(0), response.content_length());
+
+    drop_database(&app).await;
 }
 
 #[tokio::test]
@@ -40,6 +43,8 @@ async fn subscribe_valid_form_data_200() {
 
     assert_eq!(saved.email, "testemail@gmail.com");
     assert_eq!(saved.name, "test");
+
+    drop_database(&app).await;
 }
 
 #[tokio::test]
@@ -68,11 +73,14 @@ async fn subscribe_data_missing_400() {
             error_message
         );
     }
+
+    drop_database(&app).await;
 }
 
 pub struct TestApp {
     pub address: String,
     pub db_pool: PgPool,
+    pub db_name: String,
 }
 
 async fn spawn_app() -> TestApp {
@@ -80,10 +88,10 @@ async fn spawn_app() -> TestApp {
     let port = listener.local_addr().unwrap().port();
     let address = format!("http://127.0.0.1:{}", port);
 
-    let configuration = get_configuration().expect("Failed to read configuration.");
-    let connection_pool = PgPool::connect(&configuration.database.connection_string())
-        .await
-        .expect("Failed to connect to Postgres");
+    let mut configuration = get_configuration().expect("Failed to read configuration.");
+    configuration.database.database_name = Uuid::new_v4().to_string();
+
+    let connection_pool = configure_database(&configuration.database).await;
     let server = email_newsletter::startup::run(listener, connection_pool.clone())
         .expect("Failed to bind address");
     let _ = tokio::spawn(server);
@@ -91,5 +99,53 @@ async fn spawn_app() -> TestApp {
     TestApp {
         address,
         db_pool: connection_pool,
+        db_name: configuration.database.database_name,
     }
+}
+
+pub async fn configure_database(config: &DatabaseSettings) -> PgPool {
+    // Create database
+    let mut connection = PgConnection::connect(&config.connection_string_without_db())
+        .await
+        .expect("Failed to connect to Postgres");
+    connection
+        .execute(format!(r#"CREATE DATABASE "{}";"#, config.database_name).as_str())
+        .await
+        .expect("Failed to create database.");
+    // Migrate database
+    let connection_pool = PgPool::connect(&config.connection_string())
+        .await
+        .expect("Failed to connect to Postgres.");
+    sqlx::migrate!("./migrations")
+        .run(&connection_pool)
+        .await
+        .expect("Failed to migrate the database");
+    connection_pool
+}
+
+async fn drop_database(app: &TestApp) {
+    let config = get_configuration().expect("Failed to read configuration.");
+    let pg_config = &config.database;
+
+    // Connect to the default "postgres" database
+    let mut conn = PgConnection::connect(&pg_config.connection_string_without_db())
+        .await
+        .expect("Failed to connect to Postgres.");
+
+    // Terminate all connections to the test database
+    let query = format!(
+        r#"SELECT pg_terminate_backend(pg_stat_activity.pid) FROM pg_stat_activity WHERE pg_stat_activity.datname = '{}';"#,
+        app.db_name
+    );
+    sqlx::query(&query)
+        .execute(&mut conn)
+        .await
+        .expect("Failed to terminate connections");
+
+    // Drop the test database
+    let query = format!(r#"DROP DATABASE "{}""#, app.db_name);
+    sqlx::query(&query)
+        .execute(&mut conn)
+        .await
+        .expect("Failed to delete database");
 }
