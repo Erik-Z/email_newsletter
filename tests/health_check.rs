@@ -4,7 +4,6 @@ use email_newsletter::{
 };
 use once_cell::sync::Lazy;
 use reqwest::Client;
-use secrecy::ExposeSecret;
 use sqlx::{Connection, Executor, PgConnection, PgPool};
 use std::{net::TcpListener, vec};
 use uuid::Uuid;
