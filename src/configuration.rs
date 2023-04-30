@@ -4,7 +4,6 @@ use serde_aux::field_attributes::deserialize_number_from_string;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::postgres::PgSslMode;
 
-
 #[derive(serde::Deserialize)]
 pub struct Settings {
     pub database: DatabaseSettings,
@@ -19,7 +18,7 @@ pub struct DatabaseSettings {
     pub port: u16,
     pub host: String,
     pub database_name: String,
-    pub require_ssl: bool
+    pub require_ssl: bool,
 }
 
 impl DatabaseSettings {
@@ -33,7 +32,7 @@ impl DatabaseSettings {
         } else {
             // Try an encrypted connection, fallback to unencrypted if it fails
             PgSslMode::Prefer
-        };            
+        };
         PgConnectOptions::new()
             .host(&self.host)
             .username(&self.username)
@@ -62,13 +61,13 @@ pub fn get_configuration() -> Result<Settings, config::ConfigError> {
         .unwrap_or_else(|_| "local".into())
         .try_into()
         .expect("Failed to parse APP_ENVIRONMENT.");
-    
+
     settings.merge(
-        config::File::from(configuration_directory.join(environment.as_str())).required(true),    
+        config::File::from(configuration_directory.join(environment.as_str())).required(true),
     )?;
 
     settings.merge(config::Environment::with_prefix("app").separator("__"))?;
- 
+
     settings.try_into()
 }
 
