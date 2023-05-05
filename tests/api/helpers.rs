@@ -4,6 +4,7 @@ use email_newsletter::telemetry::{get_subscriber, init_subscriber};
 use once_cell::sync::Lazy;
 use sqlx::{Connection, Executor, PgConnection, PgPool};
 use uuid::Uuid;
+use wiremock::MockServer;
 
 static TRACING: Lazy<()> = Lazy::new(|| {
     let default_filter_level = "info".to_string();
@@ -22,11 +23,13 @@ pub struct TestApp {
     pub address: String,
     pub db_pool: PgPool,
     pub db_name: String,
+    pub email_server: MockServer,
 }
 
 impl TestApp {
-    pub async fn post_subscriptions(&self, body: String) -> reqwest::Response{
-        reqwest::Client::new().post(&format!("{}/subscriptions", &self.address))
+    pub async fn post_subscriptions(&self, body: String) -> reqwest::Response {
+        reqwest::Client::new()
+            .post(&format!("{}/subscriptions", &self.address))
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(body)
             .send()
@@ -38,6 +41,7 @@ impl TestApp {
 pub async fn spawn_app() -> TestApp {
     Lazy::force(&TRACING);
 
+    let email_server = MockServer::start().await;
     let mut configuration = get_configuration().expect("Failed to read configuration.");
     configuration.database.database_name = Uuid::new_v4().to_string();
 
@@ -45,6 +49,7 @@ pub async fn spawn_app() -> TestApp {
         let mut c = get_configuration().expect("Failed to read configuration.");
         c.database.database_name = Uuid::new_v4().to_string();
         c.application.port = 0;
+        c.email_client.base_url = email_server.uri();
         c
     };
 
@@ -60,6 +65,7 @@ pub async fn spawn_app() -> TestApp {
         address: address,
         db_pool: get_connection_pool(&configuration.database),
         db_name: configuration.database.database_name,
+        email_server,
     }
 }
 
