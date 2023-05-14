@@ -1,5 +1,4 @@
 use crate::helpers::spawn_app;
-use reqwest::Url;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, ResponseTemplate};
 
@@ -59,4 +58,44 @@ async fn clicking_on_the_confirmation_link_confirms_a_subscriber() {
     assert_eq!(saved.email, "test@gmail.com");
     assert_eq!(saved.name, "test");
     assert_eq!(saved.status, "confirmed");
+}
+
+#[tokio::test]
+async fn clicking_on_the_confirmation_link_twice_returns_already_confirmed_message() {
+    let app = spawn_app().await;
+    let body = "name=test&email=test%40gmail.com";
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&app.email_server)
+        .await;
+    app.post_subscriptions(body.into()).await;
+    let email_requests = app.email_server.received_requests().await.unwrap();
+    let email_request = &email_requests[0];
+    let confirmation_links = app.get_confirmation_links(&email_request);
+
+    reqwest::get(confirmation_links.html.clone())
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    let saved = sqlx::query!("SELECT email, name, status FROM subscriptions",)
+        .fetch_one(&app.db_pool)
+        .await
+        .expect("Failed to fetch saved subscription.");
+    assert_eq!(saved.email, "test@gmail.com");
+    assert_eq!(saved.name, "test");
+    assert_eq!(saved.status, "confirmed");
+
+    let response_second_click = reqwest::get(confirmation_links.html)
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    assert_eq!(response_second_click, "Email is already confirmed");
 }

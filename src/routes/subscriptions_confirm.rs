@@ -1,7 +1,6 @@
 use actix_web::{web, HttpResponse};
 use sqlx::types::Uuid as SqlxUuid;
 use sqlx::PgPool;
-use uuid::Uuid;
 
 #[derive(serde::Deserialize)]
 pub struct Parameters {
@@ -15,13 +14,21 @@ pub async fn confirm(parameters: web::Query<Parameters>, pool: web::Data<PgPool>
         Err(_) => return HttpResponse::InternalServerError().finish(),
     };
     match id {
-        // Non-existing token!
         None => HttpResponse::Unauthorized().finish(),
         Some(subscriber_id) => {
-            if confirm_subscriber(&pool, subscriber_id).await.is_err() {
-                return HttpResponse::InternalServerError().finish();
+            let status = get_subscriber_status(&pool, subscriber_id).await;
+            match status {
+                Ok(Some(status)) if status == "confirmed" => {
+                    HttpResponse::Ok().body("Email is already confirmed")
+                }
+                Ok(_) => {
+                    if confirm_subscriber(&pool, subscriber_id).await.is_err() {
+                        return HttpResponse::InternalServerError().finish();
+                    }
+                    HttpResponse::Ok().finish()
+                }
+                Err(_) => HttpResponse::InternalServerError().finish(),
             }
-            HttpResponse::Ok().finish()
         }
     }
 }
@@ -57,4 +64,22 @@ pub async fn get_subscriber_id_from_token(
         e
     })?;
     Ok(result.map(|r| r.subscriber_id))
+}
+
+#[tracing::instrument(name = "Get subscriber status", skip(subscriber_id, pool))]
+pub async fn get_subscriber_status(
+    pool: &PgPool,
+    subscriber_id: SqlxUuid,
+) -> Result<Option<String>, sqlx::Error> {
+    let result = sqlx::query!(
+        r#"SELECT status FROM subscriptions WHERE id = $1"#,
+        subscriber_id,
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to execute query: {:?}", e);
+        e
+    })?;
+    Ok(result.map(|r| r.status))
 }
